@@ -33,16 +33,35 @@ jobs:
       - name: Fetch PHP release versions
         id: php_releases
         run: |
-          URL="https://www.php.net/releases/"
-          response=$(curl -s $URL)
-          # echo "Response: $response"  # Debug log
-          # Make sure the content was fetched correctly, if not log and exit
-          if [[ -z "$response" ]]; then
-            echo "Error: No response from $URL"
+          # URLs
+          HTML_URL="https://www.php.net/releases/"
+          JSON_URL="https://www.php.net/releases/index.php?json"
+
+          # Fetch HTML for PHP versions (previous)
+          html_response=$(curl -s "$HTML_URL")
+          if [[ -z "$html_response" ]]; then
+            echo "Error: No response from $HTML_URL"
             exit 1
           fi
-          echo "$response" | grep -oP '(?<=<h2>)([0-9]+\.[0-9]+\.[0-9]+)(?=<\/h2>)' > releases.txt
-          cat releases.txt
+          txt=$(echo "$html_response" | grep -oP '(?<=<h2>)([0-9]+\.[0-9]+\.[0-9]+)(?=<\/h2>)')
+
+          # Fetch JSON for PHP versions (latest)
+          json_response=$(curl -s "$JSON_URL")
+          if [[ -z "$json_response" ]]; then
+            echo "Error: No response from $JSON_URL"
+            exit 1
+          fi
+
+          # Filter out versions with '"museum": true' and get only the "version" field
+          jsonVersions=$(echo "$json_response" | jq -r 'to_entries | map(select(.value.museum != true)) | .[].value.version')
+
+          # Merge unqiue results
+          all_versions=$(echo -e "$jsonVersions\n$txt" | uniq)
+
+          echo "Final PHP Versions:"
+          echo "$all_versions"
+
+          echo "$all_versions" > releases.txt
 
       - name: Get PHP version list
         id: get_versions
