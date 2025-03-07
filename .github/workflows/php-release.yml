@@ -1,0 +1,137 @@
+name: PHP Version Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'PHP version (e.g. 8.4.3)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: 'PHP version (e.g. 8.4.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  php-version-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq
+
+      - name: Fetch PHP release files dynamically
+        run: |
+          version="${{ github.event.inputs.version }}" 
+          
+          # Define base URL for releases and archives
+          base_url="https://windows.php.net/downloads/releases/"
+          archive_url="https://windows.php.net/downloads/releases/archives/"
+
+          # Try to fetch the x64 and x86 URLs from the main release page
+          x64_url=$(curl -s "$base_url" | grep -oP 'downloads/releases/php-'${version}'-nts-Win32-[^"]*-x64\.zip' | head -n 1)
+          x86_url=$(curl -s "$base_url" | grep -oP 'downloads/releases/php-'${version}'-nts-Win32-[^"]*-x86\.zip' | head -n 1)
+
+          # If not found, try fetching from the archives
+          if [[ -z "$x64_url" ]]; then
+            echo "Not found x64 on the main releases page, trying the archives."
+            x64_url=$(curl -s "$archive_url" | grep -oP 'downloads/releases/archives/php-'${version}'-nts-Win32-[^"]*-x64\.zip' | head -n 1)
+            if [[ -n "$x64_url" ]]; then
+              echo "Found x64 archive URL: $x64_url"
+            fi
+          fi
+
+          if [[ -z "$x86_url" ]]; then
+            echo "Not found x86 on the main releases page, trying the archives."
+            x86_url=$(curl -s "$archive_url" | grep -oP 'downloads/releases/archives/php-'${version}'-nts-Win32-[^"]*-x86\.zip' | head -n 1)
+            if [[ -n "$x86_url" ]]; then
+              echo "Found x86 archive URL: $x86_url"
+            fi
+          fi
+
+          # Construct the full download URLs if found
+          if [[ -n "$x64_url" ]]; then
+            x64_url="https://windows.php.net/${x64_url}"
+            echo "Found x64 URL: $x64_url"
+
+          else
+            echo "Warning: x64 URL not found for version ${version}."
+
+          fi
+
+          if [[ -n "$x86_url" ]]; then
+            x86_url="https://windows.php.net/${x86_url}"
+            echo "Found x86 URL: $x86_url"
+
+          else
+            echo "Warning: x86 URL not found for version ${version}."
+
+          fi
+
+          # Define the assets list
+          assets=(
+            "https://www.php.net/distributions/php-${version}.tar.gz" # Official PHP release tar.gz
+            "$x64_url"  # Dynamic x64 download (if found)
+            "$x86_url"  # Dynamic x86 download (if found)
+            "https://windows.php.net/downloads/releases/php-${version}-src.zip"  # Source code ZIP
+          )
+            
+          # Download files and rename them
+          for url in "${assets[@]}"; do
+            if [[ -n "$url" ]]; then
+              original_filename=$(basename $url)
+              filename=$(basename $url)
+              # Renaming files based on the URL
+              if [[ $url == *"x64"* ]]; then
+                filename="php-${version}-win-x64.zip"
+              elif [[ $url == *"x86"* ]]; then
+                filename="php-${version}-win-x86.zip"
+              elif [[ $url == *"src.zip"* ]]; then
+                filename="php-${version}-win-src.zip"
+              fi
+              echo "Downloading and renaming $url to $filename"
+              curl -O "$url"
+              if [[ "$original_filename" != "$filename" ]]; then
+                mv "$original_filename" "$filename"
+              fi
+            fi
+          done
+
+      - name: Extract major version
+        run: |
+          echo "VERSION_MAJOR=$(echo ${{ github.event.inputs.version }} | cut -d'.' -f1,1)" >> $GITHUB_ENV
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          target_commitish: "b249226a4b2e29219091637c9658c2024e709d3a"
+          tag_name: "v${{ github.event.inputs.version }}"
+          name: "v${{ github.event.inputs.version }}"
+          body: |
+            # PHP v${{ github.event.inputs.version }}
+
+            Changelog: [What's changed in v${{ github.event.inputs.version }}?](https://www.php.net/ChangeLog-${{ env.VERSION_MAJOR }}.php#${{ github.event.inputs.version }})
+            
+            Sources:
+            * https://php.net/releases
+            * https://windows.php.net/downloads/releases
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            php-${{ github.event.inputs.version }}.tar.gz
+            php-${{ github.event.inputs.version }}-win-x64.zip
+            php-${{ github.event.inputs.version }}-win-x86.zip
+            php-${{ github.event.inputs.version }}-win-src.zip
