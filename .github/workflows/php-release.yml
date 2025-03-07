@@ -85,7 +85,6 @@ jobs:
             "https://www.php.net/distributions/php-${version}.tar.gz" # Official PHP release tar.gz
             "$x64_url"  # Dynamic x64 download (if found)
             "$x86_url"  # Dynamic x86 download (if found)
-            "https://windows.php.net/downloads/releases/php-${version}-src.zip"  # Source code ZIP
           )
             
           # Download files and rename them
@@ -98,8 +97,6 @@ jobs:
                 filename="php-${version}-win-x64.zip"
               elif [[ $url == *"x86"* ]]; then
                 filename="php-${version}-win-x86.zip"
-              elif [[ $url == *"src.zip"* ]]; then
-                filename="php-${version}-win-src.zip"
               fi
               echo "Downloading and renaming $url to $filename"
               curl -O "$url"
@@ -134,4 +131,3 @@ jobs:
             php-${{ github.event.inputs.version }}.tar.gz
             php-${{ github.event.inputs.version }}-win-x64.zip
             php-${{ github.event.inputs.version }}-win-x86.zip
-            php-${{ github.event.inputs.version }}-win-src.zip
