@@ -86,7 +86,7 @@ jobs:
           # Get the inputs from the workflow
           minimum_version="${{ github.event.inputs.minimum_version }}"
           number_of_versions="${{ github.event.inputs.number_of_versions }}"
-          if [[ -z "$number_of_versions "]]; then
+          if [[ -z "$number_of_versions" ]]; then
             number_of_versions="10"
           fi
           
