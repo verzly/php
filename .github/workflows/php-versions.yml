@@ -152,3 +152,16 @@ jobs:
         with:
           workflow: php-release.yml
           inputs: '{ "version": "${{ matrix.version }}" }'
+
+  update-cache:
+    needs: trigger-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Trigger PHP Cache Update
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: php-cache.yml
