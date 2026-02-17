@@ -17,7 +17,7 @@ This repository auto matically monitors new PHP releases and generates a **execu
 - Linux aarch64 build (built with static-php-cli [bulk](https://dl.static-php.dev/static-php-cli/bulk) variant)
 - macOS x86_64 build (built with static-php-cli [bulk](https://dl.static-php.dev/static-php-cli/bulk) variant)
 - macOS aarch64 build (built with static-php-cli [bulk](https://dl.static-php.dev/static-php-cli/bulk) variant)
-- Windows x64 build (built with static-php-cli [spc-max](https://dl.static-php.dev/static-php-cli/windows/spc-max) variant)
+- Windows x86_64 build (built with static-php-cli [spc-max](https://dl.static-php.dev/static-php-cli/windows/spc-max) variant)
 
 ## Usage
 
@@ -45,6 +45,20 @@ mise use ubi:verzly/php@8.4.3
 
 You can find all available versions in the [Releases Section](../../releases).
 
-## Missing a Version?
+### Missing a Version?
 
 If you notice a missing release or any issues with the packages, please [open an issue](../../issues) to let us know.
+
+## Composer for PHP
+
+### Linux & macOS
+
+```none
+bash <(curl -fsSL https://raw.githubusercontent.com/verzly/php/master/composer/install.sh)
+```
+
+### Windows
+
+```none
+powershell -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/verzly/php/master/composer/install.ps1'))"
+```
