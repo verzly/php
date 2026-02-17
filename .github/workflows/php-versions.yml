@@ -2,8 +2,13 @@ name: PHP Version Fetcher
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Run once a day
+    - cron: '0 0 * * *'  # Automatically runs once a day (fetches only recent updates)
   workflow_dispatch:
+    inputs:
+      minimum_version:
+        description: 'Minimum PHP version to fetch (if not 0.0.0, ignores date limit)'
+        required: false
+        default: '0.0.0'
 
 jobs:
   extract-php-versions:
@@ -16,47 +21,67 @@ jobs:
 
       - name: Fetch and process PHP CLI tarballs
         id: filter-versions
+        env:
+          MIN_VER: ${{ github.event.inputs.minimum_version || '0.0.0' }}
         run: |
-          echo "Fetching tarball list from static-php.dev JSON API..."
+          echo "🔍 Fetching data from static-php.dev... (Min version filter: $MIN_VER)"
 
-          # Fetch the JSON data and filter for PHP CLI tarballs
+          # Fetch JSON data and apply hybrid filtering
           curl -sS "https://dl.static-php.dev/static-php-cli/bulk/?format=json" | \
-          # Use jq to filter and process JSON data
-          jq -r '
+          jq -r --arg min_v "$MIN_VER" '
             .[] | 
+            # Filter for CLI tarballs only
             select(.is_dir == false and (.name | test("php-[0-9]+\\.[0-9]+\\.[0-9]+-cli-.+\\.tar\\.gz"))) |
             {
               name: .name,
               version: (.name | capture("php-(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)-cli-") | .version),
               last_modified: .last_modified
             } |
-            # Check if last modified date is within 2 days
+            # FILTERING LOGIC
             select(
-              ((.last_modified | strptime("%Y-%m-%d %H:%M:%S") | mktime) > (now - (2 * 24 * 60 * 60)))
+              (
+                # A: If manual dispatch (min_version provided), filter by semantic versioning logic
+                ($min_v != "0.0.0") and 
+                ([.version, $min_v] | sort_by(split(".") | map(tonumber)) | last == .version)
+              ) 
+              or 
+              (
+                # B: If scheduled run (default 0.0.0), only fetch files modified in the last 48 hours
+                ($min_v == "0.0.0") and 
+                ((.last_modified | strptime("%Y-%m-%d %H:%M:%S") | mktime) > (now - (2 * 24 * 60 * 60)))
+              )
             ) |
             .version
-          ' | \
-          # Sort unique versions and remove duplicates
-          sort -u > php_versions.txt
+          ' | sort -uV > php_versions.txt
 
+          # Check if any versions were found
           if [ -s php_versions.txt ]; then
-            echo "New PHP versions:"
-            cat php_versions.txt
+            count=$(wc -l < php_versions.txt)
+            echo "✅ Found $count versions."
 
-            # Convert to JSON array for matrix strategy
+            # Matrix safety limit (GitHub supports max 256 parallel jobs)
+            if [ "$count" -gt 250 ]; then
+               echo "⚠️ Too many versions ($count), capping at 250 for matrix stability."
+               head -n 250 php_versions.txt > temp.txt && mv temp.txt php_versions.txt
+            fi
+
+            cat php_versions.txt
+            
+            # Convert the list into a JSON array for the matrix strategy
             versions=$(jq -R -s -c 'split("\n") | map(select(length > 0))' php_versions.txt)
             echo "versions=$versions" >> $GITHUB_OUTPUT
           else
-            # Skip if no new versions found
-            echo "No new PHP versions found to release."
+            echo "ℹ️ No versions found matching the criteria."
             echo "versions=[]" >> $GITHUB_OUTPUT
           fi
 
   dispatch-releases:
     needs: extract-php-versions
     runs-on: ubuntu-latest
+    # Only run if the version list is not empty
     if: needs.extract-php-versions.outputs.versions != '[]'
     strategy:
+      fail-fast: false  # Continue other jobs even if one fails
       matrix:
         version: ${{ fromJSON(needs.extract-php-versions.outputs.versions) }}
     permissions:
