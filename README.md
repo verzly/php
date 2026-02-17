@@ -39,6 +39,15 @@ mise use ubi:verzly/php@8.4
 
 # Only PHP 8.4.3 patch
 mise use ubi:verzly/php@8.4.3
+
+# Check installed PHP versions
+mise ls php
+
+# Change globally selected PHP version
+mise use -g php@8 # or latest or 8.4 or 8.4.3
+
+# Check current PHP version
+php --version
 ```
 
 ### Download Releases
@@ -51,14 +60,44 @@ If you notice a missing release or any issues with the packages, please [open an
 
 ## Composer for PHP
 
-### Linux & macOS
+In the case of Composer, it is very rare to require different versions. Therefore, instead of collecting multiple versions, we can install the official Composer using a single script without any extra steps.
 
-```none
+**Linux & macOS**
+
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/verzly/php/master/composer/install.sh)
 ```
 
-### Windows
+**Windows**
 
-```none
+```bash
 powershell -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/verzly/php/master/composer/install.ps1'))"
+```
+
+To update or install a specific version, we can use Composer's built-in self-update command:
+
+```bash
+# Latest Composer major
+composer self-update
+
+# Latest Composer 2 minor, patch
+composer self-update 2
+
+# Latest Composer 2.7 patch
+composer self-update 2.7
+
+# Only Composer 2.7.9 patch
+composer self-update 2.7.9
+
+# Roll back to the previous version
+composer self-update --rollback
+
+# Update to latest preview/RC version
+composer self-update --preview
+
+# Update to latest snapshot/development version
+composer self-update --snapshot
+
+# Check current Composer version
+composer --version
 ```
