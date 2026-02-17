@@ -4,164 +4,67 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Run once a day
   workflow_dispatch:
-    inputs:
-      minimum_version:
-        description: 'Minimum version (defaults to latest)'
-        required: false
-        default: ''
-      number_of_versions:
-        description: 'Number of versions to check (defaults to 10)'
-        required: false
-        default: '10'
-
-permissions:
-  contents: write
-  actions: write
 
 jobs:
-  fetch-php-versions:
+  extract-php-versions:
     runs-on: ubuntu-latest
     outputs:
-      versions: ${{ steps.get_versions.outputs.versions }}
-
+      versions: ${{ steps.filter-versions.outputs.versions }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0  # Fetch the entire git history
-          
-      - name: Fetch PHP release versions
-        id: php_releases
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Fetch and process PHP CLI tarballs
+        id: filter-versions
         run: |
-          # URLs
-          HTML_URL="https://www.php.net/releases/"
-          JSON_URL="https://www.php.net/releases/index.php?json"
+          echo "Fetching tarball list from static-php.dev JSON API..."
 
-          # Fetch HTML for PHP versions (previous)
-          html_response=$(curl -s "$HTML_URL")
-          if [[ -z "$html_response" ]]; then
-            echo "Error: No response from $HTML_URL"
-            exit 1
-          fi
-          txt=$(echo "$html_response" | grep -oP '(?<=<h2>)([0-9]+\.[0-9]+\.[0-9]+)(?=<\/h2>)')
+          # Fetch the JSON data and filter for PHP CLI tarballs
+          curl -sS "https://dl.static-php.dev/static-php-cli/bulk/?format=json" | \
+          # Use jq to filter and process JSON data
+          jq -r '
+            .[] | 
+            select(.is_dir == false and (.name | test("php-[0-9]+\\.[0-9]+\\.[0-9]+-cli-.+\\.tar\\.gz"))) |
+            {
+              name: .name,
+              version: (.name | capture("php-(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)-cli-") | .version),
+              last_modified: .last_modified
+            } |
+            # Check if last modified date is within 2 days
+            select(
+              ((.last_modified | strptime("%Y-%m-%d %H:%M:%S") | mktime) > (now - (2 * 24 * 60 * 60)))
+            ) |
+            .version
+          ' | \
+          # Sort unique versions and remove duplicates
+          sort -u > php_versions.txt
 
-          # Fetch JSON for PHP versions (latest)
-          json_response=$(curl -s "$JSON_URL")
-          if [[ -z "$json_response" ]]; then
-            echo "Error: No response from $JSON_URL"
-            exit 1
-          fi
+          if [ -s php_versions.txt ]; then
+            echo "New PHP versions:"
+            cat php_versions.txt
 
-          # Filter out versions with '"museum": true' and get only the "version" field
-          jsonVersions=$(echo "$json_response" | jq -r 'to_entries | map(select(.value.museum != true)) | .[].value.version')
-
-          # Merge unqiue results
-          all_versions=$(echo -e "$jsonVersions\n$txt" | uniq)
-
-          echo "Final PHP Versions:"
-          echo "$all_versions"
-
-          echo "$all_versions" > releases.txt
-
-      - name: Get PHP version list
-        id: get_versions
-        run: |
-          # Check if the file is not empty
-          if [[ ! -s releases.txt ]]; then
-            echo "Error: releases.txt is empty or missing."
-            exit 1
-          fi
-          
-          # Filter out versions smaller than 5.2.0
-          versions_list=$(cat releases.txt | while read version; do
-            version=$(echo "$version" | xargs)
-            
-            IFS='.' read -r major minor patch <<< "$version"
-
-            if (( major > 5 || (major == 5 && minor > 2) || (major == 5 && minor == 2 && patch >= 0) )); then
-              echo "$version"
-            fi
-          done)
-          
-          # Get the inputs from the workflow
-          minimum_version="${{ github.event.inputs.minimum_version }}"
-          number_of_versions="${{ github.event.inputs.number_of_versions }}"
-          if [[ -z "$number_of_versions" ]]; then
-            number_of_versions="10"
-          fi
-          
-          index_of_min_version=0
-
-          # Default minimum_version is not empty
-          if [[ -n "$minimum_version" ]]; then
-            echo "Found minimum version: v$minimum_version"
-
-            sorted_versions=()
-            mapfile -t versions_array <<< "$versions_list"
-            for version in "${versions_array[@]}"; do
-              IFS='.' read -r major minor patch <<< "$version"
-              major=${major:-0}
-              minor=${minor:-0}
-              patch=${patch:-0}
-              if ! [[ "$major" =~ ^[0-9]+$ ]]; then major=0; fi
-              if ! [[ "$minor" =~ ^[0-9]+$ ]]; then minor=0; fi
-              if ! [[ "$patch" =~ ^[0-9]+$ ]]; then patch=0; fi
-
-              IFS='.' read -r min_major min_minor min_patch <<< "$minimum_version"
-              min_major=${min_major:-0}
-              min_minor=${min_minor:-0}
-              min_patch=${min_patch:-0}
-              if ! [[ "$min_major" =~ ^[0-9]+$ ]]; then min_major=0; fi
-              if ! [[ "$min_minor" =~ ^[0-9]+$ ]]; then min_minor=0; fi
-              if ! [[ "$min_patch" =~ ^[0-9]+$ ]]; then min_patch=0; fi
-
-              if (( major > min_major || (major == min_major && minor > min_minor) || (major == min_major && minor == min_minor && patch >= min_patch) )); then
-                sorted_versions+=("$version")
-              fi
-            done
-
-            versions_list=($(echo "${sorted_versions[@]}" | tr ' ' '\n' | sort -V | tr '\n' ' '))
+            # Convert to JSON array for matrix strategy
+            versions=$(jq -R -s -c 'split("\n") | map(select(length > 0))' php_versions.txt)
+            echo "versions=$versions" >> $GITHUB_OUTPUT
           else
-
-            echo "Not found minimum version."
-            versions_list=($(echo "${versions_list[@]}" | tr ' ' '\n' | tr '\n' ' '))
+            # Skip if no new versions found
+            echo "No new PHP versions found to release."
+            echo "versions=[]" >> $GITHUB_OUTPUT
           fi
 
-          # Get the next `number_of_versions` versions
-          selected_versions=("${versions_list[@]:$index_of_min_version:$number_of_versions}")
-          
-          # Convert the versions into a JSON array
-          versions=$(echo "${selected_versions[@]}" | jq -R -s -c 'split(" ")' | tr -d '\\n')
-
-          echo "versions=$versions" >> $GITHUB_OUTPUT
-          echo "Version list: $versions"  # Debug log
-
-  trigger-release:
-    needs: fetch-php-versions
+  dispatch-releases:
+    needs: extract-php-versions
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: write
+    if: needs.extract-php-versions.outputs.versions != '[]'
     strategy:
       matrix:
-        version: ${{ fromJson(needs.fetch-php-versions.outputs.versions) }}
-
+        version: ${{ fromJSON(needs.extract-php-versions.outputs.versions) }}
+    permissions:
+      contents: read
+      actions: write
     steps:
-      - name: Trigger PHP Version Release
+      - name: Dispatch release workflow for PHP ${{ matrix.version }}
         uses: benc-uk/workflow-dispatch@v1
         with:
           workflow: php-release.yml
           inputs: '{ "version": "${{ matrix.version }}" }'
-
-  update-cache:
-    needs: trigger-release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: write
-
-    steps:
-      - name: Trigger PHP Cache Update
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: php-cache.yml

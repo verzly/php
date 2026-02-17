@@ -25,109 +25,92 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq
 
-      - name: Fetch PHP release files dynamically
+      - name: Fetch PHP CLI tarballs
+        continue-on-error: true
         run: |
-          version="${{ github.event.inputs.version }}" 
+          VERSION="${{ inputs.version || github.event.inputs.version }}"
+          echo "Fetching static-php-cli tarballs for PHP version: $VERSION"
           
-          # Define base URL for releases and archives
-          base_url="https://windows.php.net/downloads/releases/"
-          archive_url="https://windows.php.net/downloads/releases/archives/"
+          mkdir -p downloads
 
-          # Try to fetch the x64 and x86 URLs from the main release page
-          x64_url=$(curl -s "$base_url" | grep -oP 'downloads/releases/php-'${version}'-nts-Win32-[^"]*-x64\.zip' | head -n 1)
-          x86_url=$(curl -s "$base_url" | grep -oP 'downloads/releases/php-'${version}'-nts-Win32-[^"]*-x86\.zip' | head -n 1)
+          # Fetch file listings using JSON API and find matching tarballs
+          echo "Fetching from bulk repository..."
+          curl -sS "https://dl.static-php.dev/static-php-cli/bulk/?format=json" | \
+            jq -r ".[] | select(.name | test(\"php-${VERSION}-cli\")) | .full_path" \
+            >> matching_filepaths.txt || true
 
-          # If not found, try fetching from the archives
-          if [[ -z "$x64_url" ]]; then
-            echo "Not found x64 on the main releases page, trying the archives."
-            x64_url=$(curl -s "$archive_url" | grep -oP 'downloads/releases/archives/php-'${version}'-nts-Win32-[^"]*-x64\.zip' | head -n 1)
-            if [[ -n "$x64_url" ]]; then
-              echo "Found x64 archive URL: $x64_url"
-            fi
-          fi
+          echo "Fetching from windows/spc-max repository..."
+          curl -sS "https://dl.static-php.dev/static-php-cli/windows/spc-max/?format=json" | \
+            jq -r ".[] | select(.name | test(\"php-${VERSION}-cli\")) | .full_path" \
+            >> matching_filepaths.txt || true
 
-          if [[ -z "$x86_url" ]]; then
-            echo "Not found x86 on the main releases page, trying the archives."
-            x86_url=$(curl -s "$archive_url" | grep -oP 'downloads/releases/archives/php-'${version}'-nts-Win32-[^"]*-x86\.zip' | head -n 1)
-            if [[ -n "$x86_url" ]]; then
-              echo "Found x86 archive URL: $x86_url"
-            fi
-          fi
+          # Check if we found anything
+          if [ -s matching_filepaths.txt ]; then
+            echo "Found matching file paths from static-php.dev:"
+            cat matching_filepaths.txt
 
-          # Construct the full download URLs if found
-          if [[ -n "$x64_url" ]]; then
-            x64_url="https://windows.php.net/${x64_url}"
-            echo "Found x64 URL: $x64_url"
-
-          else
-            echo "Warning: x64 URL not found for version ${version}."
-
-          fi
-
-          if [[ -n "$x86_url" ]]; then
-            x86_url="https://windows.php.net/${x86_url}"
-            echo "Found x86 URL: $x86_url"
-
-          else
-            echo "Warning: x86 URL not found for version ${version}."
-
-          fi
-
-          # Define the assets list
-          assets=(
-            "https://www.php.net/distributions/php-${version}.tar.gz" # Official PHP release tar.gz
-            "$x64_url"  # Dynamic x64 download (if found)
-            "$x86_url"  # Dynamic x86 download (if found)
-          )
-            
-          # Download files and rename them
-          for url in "${assets[@]}"; do
-            if [[ -n "$url" ]]; then
-              original_filename=$(basename $url)
-              filename=$(basename $url)
-              # Renaming files based on the URL
-              if [[ $url == *"x64"* ]]; then
-                filename="php-${version}-win-x64.zip"
-              elif [[ $url == *"x86"* ]]; then
-                filename="php-${version}-win-x86.zip"
+            # Download and rename each file
+            while read -r filepath; do
+              filename=$(basename "$filepath")
+              echo "Downloading: $filename"
+              if curl -L -o "downloads/temp_${filename}" "https://dl.static-php.dev/${filepath}"; then
+                # Extract architecture and file extension for both .tar.gz and .zip files
+                if [[ "$filename" =~ php-${VERSION}-cli-(.+)\.tar\.gz$ ]]; then
+                  arch="${BASH_REMATCH[1]}"
+                  fileext="tar.gz"
+                elif [[ "$filename" =~ php-${VERSION}-cli-(.+)\.zip$ ]]; then
+                  arch="${BASH_REMATCH[1]}"
+                  fileext="zip"
+                else
+                  echo "Error: Could not extract arch/file extension from $filename"
+                  rm "downloads/temp_${filename}" || true
+                  continue
+                fi
+                # Rename file to new format
+                new_filename="php-${VERSION}-cli-${arch}.${fileext}"
+                mv "downloads/temp_${filename}" "downloads/${new_filename}"
+                echo "Renamed to: $new_filename"
+              else
+                echo "Warning: Failed to download $filename"
+                rm "downloads/temp_${filename}" || true
               fi
-              echo "Downloading and renaming $url to $filename"
-              curl -O "$url"
-              if [[ "$original_filename" != "$filename" ]]; then
-                mv "$original_filename" "$filename"
-              fi
-            fi
-          done
+            done < matching_filepaths.txt
+            rm -f matching_filepaths.txt
+          else
+            echo "Warning: No matching files found from static-php.dev for version $VERSION"
+            rm -f matching_filepaths.txt
+          fi
+
+          echo "All files in downloads directory:"
+          ls -la downloads/
 
       - name: Extract major version
         run: |
-          echo "VERSION_MAJOR=$(echo ${{ github.event.inputs.version }} | cut -d'.' -f1,1)" >> $GITHUB_ENV
+          echo "VERSION_MAJOR=$(echo ${{ inputs.version || github.event.inputs.version }} | cut -d'.' -f1,1)" >> $GITHUB_ENV
 
-      - name: Create release
-        uses: softprops/action-gh-release@v1
+      - name: Create release with all assets
+        uses: softprops/action-gh-release@v2
         with:
           target_commitish: "b249226a4b2e29219091637c9658c2024e709d3a"
-          tag_name: "v${{ github.event.inputs.version }}"
-          name: "v${{ github.event.inputs.version }}"
+          tag_name: "v${{ inputs.version || github.event.inputs.version }}"
+          name: "v${{ inputs.version || github.event.inputs.version }}"
           body: |
-            # PHP v${{ github.event.inputs.version }}
+            # PHP v${{ inputs.version || github.event.inputs.version }}
 
-            Changelog: [What's changed in v${{ github.event.inputs.version }}?](https://www.php.net/ChangeLog-${{ env.VERSION_MAJOR }}.php#${{ github.event.inputs.version }})
+            Changelog: [What's changed in v${{ inputs.version || github.event.inputs.version }}?](https://www.php.net/ChangeLog-${{ env.VERSION_MAJOR }}.php#${{ inputs.version || github.event.inputs.version }})
             
-            Sources:
-            * https://php.net/releases
-            * https://windows.php.net/downloads/releases
+            ## Sources
+            * **Official PHP**: https://php.net/releases
+            * **Windows Builds**: https://windows.php.net/downloads/releases
+            * **Static PHP CLI**: https://dl.static-php.dev/static-php-cli/
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
-          files: |
-            php-${{ github.event.inputs.version }}.tar.gz
-            php-${{ github.event.inputs.version }}-win-x64.zip
-            php-${{ github.event.inputs.version }}-win-x86.zip
+          files: downloads/**
