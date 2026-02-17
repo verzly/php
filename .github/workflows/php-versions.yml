@@ -37,9 +37,10 @@ jobs:
               version: (.name | capture("php-(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)-cli-") | .version),
               last_modified: .last_modified
             } |
-            # Check if last modified date is within 2 days
+            # FILTERING LOGIC
             select(
-              ((.last_modified | strptime("%Y-%m-%d %H:%M:%S") | mktime) > (now - (2 * 24 * 60 * 60)))
+              (
+                # A: If manual dispatch (min_version provided), filter by semantic versioning logic
                 ($min_v != "0.0.0") and 
                 ([.version, $min_v] | sort_by(split(".") | map(tonumber)) | last == .version)
               ) 
