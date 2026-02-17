@@ -22,31 +22,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # Essential to see all tags and history
+          fetch-depth: 0
 
-      - name: Delete Releases and Tags for Specific Commit
+      - name: Delete Releases in Range
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MIN_VER: ${{ inputs.minimum_version }}
           MAX_VER: ${{ inputs.maximum_version }}
-          TARGET_COMMIT: "b249226a4b2e29219091637c9658c2024e709d3a"
         run: |
           if [ -z "$MAX_VER" ]; then MAX_VER="999.999.999"; fi
 
-          echo "🎯 Target Commit: $TARGET_COMMIT"
-          echo "🎯 Target Range: v$MIN_VER -> v$MAX_VER"
+          echo "Target Range: v$MIN_VER -> v$MAX_VER"
           echo "----------------------------------------"
 
-          # Get all tags pointing EXACTLY to the target commit
-          # git tag --points-at filters the list to that specific hash
-          git tag --points-at "$TARGET_COMMIT" | grep "^v" | sed 's/^v//' | sort -V | while read version; do
+          git tag -l "v*" | sed 's/^v//' | sort -V | while read version; do
             
-            # Version range check (Min)
             if [ "$(echo -e "$version\n$MIN_VER" | sort -V | head -n1)" != "$MIN_VER" ]; then
               continue
             fi
 
-            # Version range check (Max)
             if [ "$(echo -e "$version\n$MAX_VER" | sort -V | tail -n1)" != "$MAX_VER" ]; then
               continue
             fi
@@ -54,13 +48,11 @@ jobs:
             TAG="v$version"
             echo "🔥 Deleting $TAG..."
             
-            # Delete Release (and associated tag via --cleanup-tag)
             if ! gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null; then
-               # Fallback: forcefully delete remote tag if release doesn't exist
-               git push origin --delete "$TAG" 2>/dev/null || echo "   ⚠️ Could not delete $TAG"
+              git push origin --delete "$TAG" 2>/dev/null || echo "   ⚠️ Could not delete $TAG (maybe already gone)"
             fi
             
           done
           
           echo "----------------------------------------"
-          echo "✅ Cleanup finished for commit $TARGET_COMMIT."
+          echo "Cleanup finished."
