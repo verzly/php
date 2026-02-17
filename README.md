@@ -23,9 +23,12 @@ This repository auto matically monitors new PHP releases and generates a **execu
 
 The repository is compatible with [ubi](https://github.com/houseabsolute/ubi).
 
-### mise-en-place
+### mise-en-place via `ubi` backend
 
 It is recommended to install the binaries via [mise-en-place](https://github.com/jdx/mise).
+
+> [!WARNING]
+> The `ubi` backend has been deprecated in newer Mise-en-Place releases; it's recommended to use the `github` backend instead, although it is still under development.
 
 ```bash
 # Latest PHP major
@@ -41,10 +44,47 @@ mise use ubi:verzly/php@8.4
 mise use ubi:verzly/php@8.4.3
 
 # Check installed PHP versions
+mise ls ubi:verzly/php
+
+# Change globally selected PHP version
+mise use -g ubi:verzly/php@8 # or latest or 8.4 or 8.4.3
+
+# Check current PHP version
+php --version
+```
+
+### mise-en-place via `github` backend
+
+It is recommended to install the binaries via [mise-en-place](https://github.com/jdx/mise).
+
+Install it as a PHP alias to avoid constantly using the long backend reference. It's important to set the alias before installing the first PHP version; otherwise, mise ls will list your PHP versions in two separate entries (it won't handle the original name and the alias together).
+
+```bash
+mise plugin rm php
+mise config set tool_alias.php github:verzly/php
+```
+
+> [!WARNING]
+> Unfortunately, it currently only works with full version numbers. See more: https://github.com/jdx/mise/discussions/8215
+
+```bash
+# [CURRENTLY UNAVAILABLE] Latest PHP major - See warning above.
+mise use php@latest
+
+# [CURRENTLY UNAVAILABLE] Latest PHP 8 minor, patch - See warning above.
+mise use php@8
+
+# [CURRENTLY UNAVAILABLE] Latest PHP 8.4 patch - See warning above.
+mise use php@8.4
+
+# Only PHP 8.4.3 patch
+mise use php@8.4.3
+
+# Check installed PHP versions
 mise ls php
 
 # Change globally selected PHP version
-mise use -g php@8 # or latest or 8.4 or 8.4.3
+mise use -g php@8.4.3
 
 # Check current PHP version
 php --version
