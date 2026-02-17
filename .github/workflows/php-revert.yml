@@ -119,29 +119,27 @@ jobs:
           echo "Deleting releases and tags..."
           echo ""
 
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
           versions='${{ steps.filter_versions.outputs.versions }}'
-          deleted_count=0
 
           echo "$versions" | jq -r '.[]' | while read version; do
             tag="v$version"
             
-            # Delete GitHub release
             echo "Deleting release: $tag"
-            gh release delete "$tag" --yes 2>/dev/null || echo "  (Release not found or already deleted)"
+            gh release delete "$tag" --yes 2>/dev/null || echo "  (Release not found)"
 
-            # Delete git tag locally
             echo "Deleting local tag: $tag"
-            git tag -d "$tag" 2>/dev/null || echo "  (Tag not found locally)"
-
-            ((deleted_count++))
+            git tag -d "$tag" 2>/dev/null || true
           done
 
-          # Push tag deletions
           echo ""
           echo "Pushing tag deletions to remote..."
           echo "$versions" | jq -r '.[]' | while read version; do
             tag="v$version"
-            git push origin --delete "$tag" 2>/dev/null || echo "  (Tag not found on remote)"
+            echo "Deleting remote tag: $tag"
+            git push origin --delete "$tag" || echo "  (Tag already deleted on remote)"
           done
 
           echo ""
