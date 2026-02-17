@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       minimum_version:
-        description: 'Minimum version to revert (defaults to 0.0.0)'
+        description: 'Minimum version (e.g. 8.4.3)'
         required: false
         default: '0.0.0'
       maximum_version:
-        description: 'Maximum version to revert (defaults to latest tag)'
+        description: 'Maximum version (empty = latest)'
         required: false
         default: ''
 
@@ -16,143 +16,43 @@ permissions:
   contents: write
 
 jobs:
-  revert-releases:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Get version range
-        id: version_range
+      - name: Delete Releases in Range
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIN_VER: ${{ inputs.minimum_version }}
+          MAX_VER: ${{ inputs.maximum_version }}
         run: |
-          min_version="${{ github.event.inputs.minimum_version }}"
-          max_version="${{ github.event.inputs.maximum_version }}"
+          if [ -z "$MAX_VER" ]; then MAX_VER="999.999.999"; fi
 
-          # Default minimum version
-          if [[ -z "$min_version" ]]; then
-            min_version="0.0.0"
-          fi
+          echo "Target Range: v$MIN_VER -> v$MAX_VER"
+          echo "----------------------------------------"
 
-          echo "Minimum version: $min_version"
-          echo "Maximum version: $max_version (empty = latest)"
-
-          # Get all tags and sort them
-          all_tags=$(git tag -l | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V)
-
-          if [[ -z "$all_tags" ]]; then
-            echo "Error: No version tags found!"
-            exit 1
-          fi
-
-          echo "All available versions:"
-          echo "$all_tags"
-
-          # If max_version is empty, use the latest tag
-          if [[ -z "$max_version" ]]; then
-            max_version=$(echo "$all_tags" | tail -n 1)
-            echo "No maximum version specified, using latest: $max_version"
-          fi
-
-          echo "min_version=$min_version" >> $GITHUB_OUTPUT
-          echo "max_version=$max_version" >> $GITHUB_OUTPUT
-          echo "all_tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$all_tags" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Filter versions in range
-        id: filter_versions
-        run: |
-          min_version="${{ steps.version_range.outputs.min_version }}"
-          max_version="${{ steps.version_range.outputs.max_version }}"
-          all_tags="${{ steps.version_range.outputs.all_tags }}"
-
-          echo "Filtering versions between $min_version and $max_version..."
-
-          filtered_versions=()
-          while IFS= read -r version; do
-            if [[ -z "$version" ]]; then
+          git tag -l "v*" | sed 's/^v//' | sort -V | while read version; do
+            
+            if [ "$(echo -e "$version\n$MIN_VER" | sort -V | head -n1)" != "$MIN_VER" ]; then
               continue
             fi
 
-            # Parse version numbers
-            IFS='.' read -r major minor patch <<< "$version"
-            major=${major:-0}
-            minor=${minor:-0}
-            patch=${patch:-0}
-
-            # Parse min version
-            IFS='.' read -r min_major min_minor min_patch <<< "$min_version"
-            min_major=${min_major:-0}
-            min_minor=${min_minor:-0}
-            min_patch=${min_patch:-0}
-
-            # Parse max version
-            IFS='.' read -r max_major max_minor max_patch <<< "$max_version"
-            max_major=${max_major:-0}
-            max_minor=${max_minor:-0}
-            max_patch=${max_patch:-0}
-
-            # Check if version is in range
-            if (( major > min_major || (major == min_major && minor > min_minor) || (major == min_major && minor == min_minor && patch >= min_patch) )) && \
-               (( major < max_major || (major == max_major && minor < max_minor) || (major == max_major && minor == max_minor && patch <= max_patch) )); then
-              filtered_versions+=("$version")
+            if [ "$(echo -e "$version\n$MAX_VER" | sort -V | tail -n1)" != "$MAX_VER" ]; then
+              continue
             fi
-          done <<< "$all_tags"
 
-          if [[ ${#filtered_versions[@]} -eq 0 ]]; then
-            echo "Error: No versions found in range $min_version - $max_version"
-            exit 1
-          fi
-
-          echo "Found ${#filtered_versions[@]} versions to revert:"
-          printf '%s\n' "${filtered_versions[@]}"
-
-          # Convert to JSON array
-          versions_json=$(printf '%s\n' "${filtered_versions[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          echo "versions=$versions_json" >> $GITHUB_OUTPUT
-          echo "count=${#filtered_versions[@]}" >> $GITHUB_OUTPUT
-
-      - name: Delete releases and tags
-        run: |
-          echo "Deleting releases and tags..."
-          echo ""
-
-          versions='${{ steps.filter_versions.outputs.versions }}'
-          deleted_count=0
-
-          echo "$versions" | jq -r '.[]' | while read version; do
-            tag="v$version"
+            TAG="v$version"
+            echo "🔥 Deleting $TAG..."
             
-            # Delete GitHub release
-            echo "Deleting release: $tag"
-            gh release delete "$tag" --yes 2>/dev/null || echo "  (Release not found or already deleted)"
-
-            # Delete git tag locally
-            echo "Deleting local tag: $tag"
-            git tag -d "$tag" 2>/dev/null || echo "  (Tag not found locally)"
-
-            ((deleted_count++))
+            if ! gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null; then
+              git push origin --delete "$TAG" 2>/dev/null || echo "   ⚠️ Could not delete $TAG (maybe already gone)"
+            fi
+            
           done
-
-          # Push tag deletions
-          echo ""
-          echo "Pushing tag deletions to remote..."
-          echo "$versions" | jq -r '.[]' | while read version; do
-            tag="v$version"
-            git push origin --delete "$tag" 2>/dev/null || echo "  (Tag not found on remote)"
-          done
-
-          echo ""
-          echo "Deleted ${{ steps.filter_versions.outputs.count }} releases and tags"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Summary
-        run: |
-          echo "Releases successfully deleted!"
-          echo ""
-          echo "You can now re-release these versions using:"
-          echo "  - PHP Version Release workflow"
-          echo "  - Or PHP Version Fetcher with specific minimum version"
+          
+          echo "----------------------------------------"
+          echo "Cleanup finished."
