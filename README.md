@@ -19,8 +19,6 @@ This repository auto matically monitors new PHP releases and generates a **execu
 - macOS aarch64 build (built with static-php-cli [bulk](https://dl.static-php.dev/static-php-cli/bulk) variant)
 - Windows x86_64 build (built with static-php-cli [spc-max](https://dl.static-php.dev/static-php-cli/windows/spc-max) variant)
 
----
-
 ## Usage
 
 The repository is compatible with [ubi](https://github.com/houseabsolute/ubi).
@@ -128,8 +126,6 @@ mise upgrade
 mise upgrade php
 ```
 
----
-
 ## Advanced configuration
 
 ### Per-project versioning
@@ -141,8 +137,6 @@ mise use php@8.1
 ```
 
 This creates a `.mise.toml` file. Every time you enter this folder, `mise` will ensure the `php` command points to 8.1, while the rest of your system stays on 8.x.x.
-
----
 
 ## Composer for PHP
 
