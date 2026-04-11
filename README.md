@@ -1,3 +1,6 @@
+> [!NOTE]
+> This was an experiment to use prebuilt binaries on Linux and macOS, similar to how Windows installations work. The downside of this approach is its dependency on static-php-cli (slower release cadence compared to the official PHP releases); only certain PHP versions are available (not all, and RC or similar pre-releases are not supported at all); and available extensions cannot be customized. The project is in a usable state, although I personally encourage you to try [`verzly/mise-php`](https://github.com/verzly/mise-php) instead.
+
 # PHP Releases for Linux, macOS, and Windows
 
 This repository was created to centralize PHP releases for both Linux, macOS, and Windows, ensuring consistency and ease of access.
