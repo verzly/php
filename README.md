@@ -25,56 +25,57 @@ The repository is compatible with [ubi](https://github.com/houseabsolute/ubi).
 
 ### mise-en-place via `ubi` backend
 
+<details>
+  <summary>See more: mise-en-place via `ubi` backend</summary>
+
+  It is recommended to install the binaries via [mise-en-place](https://github.com/jdx/mise).
+
+  > [!WARNING]
+  > The `ubi` backend has been deprecated in newer Mise-en-Place releases; it's recommended to use the `github` backend instead, although it is still under development.
+
+  ```bash
+  # Latest PHP major
+  mise use ubi:verzly/php@latest
+
+  # Latest PHP 8 minor, patch
+  mise use ubi:verzly/php@8
+
+  # Latest PHP 8.4 patch
+  mise use ubi:verzly/php@8.4
+
+  # Only PHP 8.4.3 patch
+  mise use ubi:verzly/php@8.4.3
+
+  # Check installed PHP versions
+  mise ls ubi:verzly/php
+
+  # Change globally selected PHP version
+  mise use -g ubi:verzly/php@8 # or latest or 8.4 or 8.4.3
+
+  # Check current PHP version
+  php --version
+  ```
+</details>
+
+### mise-en-place via `github` backend (Recommended)
+
 It is recommended to install the binaries via [mise-en-place](https://github.com/jdx/mise).
 
-> [!WARNING]
-> The `ubi` backend has been deprecated in newer Mise-en-Place releases; it's recommended to use the `github` backend instead, although it is still under development.
-
-```bash
-# Latest PHP major
-mise use ubi:verzly/php@latest
-
-# Latest PHP 8 minor, patch
-mise use ubi:verzly/php@8
-
-# Latest PHP 8.4 patch
-mise use ubi:verzly/php@8.4
-
-# Only PHP 8.4.3 patch
-mise use ubi:verzly/php@8.4.3
-
-# Check installed PHP versions
-mise ls ubi:verzly/php
-
-# Change globally selected PHP version
-mise use -g ubi:verzly/php@8 # or latest or 8.4 or 8.4.3
-
-# Check current PHP version
-php --version
-```
-
-### mise-en-place via `github` backend
-
-It is recommended to install the binaries via [mise-en-place](https://github.com/jdx/mise).
-
-Install it as a PHP alias to avoid constantly using the long backend reference. It's important to set the alias before installing the first PHP version; otherwise, mise ls will list your PHP versions in two separate entries (it won't handle the original name and the alias together).
+Install it as a PHP alias to avoid constantly using the long backend reference. It's important to set the alias before installing the first PHP version; otherwise, `mise ls` will list your PHP versions in two separate entries (it won't handle the original name and the alias together).
 
 ```bash
 mise plugin rm php
 mise config set tool_alias.php github:verzly/php
 ```
 
-> [!WARNING]
-> Unfortunately, it currently only works with full version numbers. See more: https://github.com/jdx/mise/discussions/8215
-
 ```bash
-# [CURRENTLY UNAVAILABLE] Latest PHP major - See warning above.
+# Latest PHP major
 mise use php@latest
 
-# [CURRENTLY UNAVAILABLE] Latest PHP 8 minor, patch - See warning above.
+# Latest PHP 8 minor, patch
 mise use php@8
 
-# [CURRENTLY UNAVAILABLE] Latest PHP 8.4 patch - See warning above.
+# Latest PHP 8.4 patch
 mise use php@8.4
 
 # Only PHP 8.4.3 patch
@@ -97,6 +98,45 @@ You can find all available versions in the [Releases Section](../../releases).
 ### Missing a Version?
 
 If you notice a missing release or any issues with the packages, please [open an issue](../../issues) to let us know.
+
+## Upgrade via Mise-en-Place
+
+One of the most powerful features of `mise` is how it handles version resolutions. Instead of hardcoding a specific (patch) release, you can reference **major/minor versions**. By referencing only the major version, you ensure that you always have the latest features and security patches within that release cycle, without manually downloading new binaries.
+
+* **`php@8`**: Points to the latest stable **v8.x.x**.
+* **`php@8.4`**: Points to the latest stable **v8.4.x**.
+
+This is particularly useful because PHP 8.x is a significant architectural shift. You can keep your PHP 8.3 projects stable while exploring PHP 8.4 features, and `mise` will manage the "latest" for both simultaneously.
+
+### How `mise` upgrades packages
+
+`mise` doesn't just "install and forget". It allows you to keep your binaries fresh with simple commands. To see if a newer version is available for your pinned major version:
+
+```bash
+mise outdated
+```
+
+If you are using `@8` and PHP releases `8.4.18`, you can upgrade simply by running:
+
+```bash
+# Upgrades all managed tools to their latest resolved version
+mise upgrade
+
+# Upgrade only PHP
+mise upgrade php
+```
+
+## Advanced configuration
+
+### Per-project versioning
+
+If you have an older project that requires PHP 8.1, simply run this inside the project folder:
+
+```bash
+mise use php@8.1
+```
+
+This creates a `.mise.toml` file. Every time you enter this folder, `mise` will ensure the `php` command points to 8.1, while the rest of your system stays on 8.x.x.
 
 ## Composer for PHP
 
