@@ -67,64 +67,100 @@ jobs:
         if: steps.existing-release.outputs.exists == 'false'
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl jq
+          sudo apt-get install -y curl jq unzip
 
       - name: Fetch PHP CLI tarballs
         if: steps.existing-release.outputs.exists == 'false'
-        continue-on-error: true
+        shell: bash
         run: |
+          set -euo pipefail
           VERSION="${{ inputs.version || github.event.inputs.version }}"
           echo "Fetching static-php-cli tarballs for PHP version: $VERSION"
-          
+
           mkdir -p downloads
+          matching_filepaths=$(mktemp)
+          trap 'rm -f "$matching_filepaths"' EXIT
 
           # Fetch file listings using JSON API and find matching v3 artifacts
           echo "Fetching from StaticPHP v3 bulk repository..."
           curl -fsS "https://dl.static-php.dev/v3/php-bin/bulk/?format=json" | \
-            jq -r --arg version "$VERSION" '.[] | select(.is_dir == false and (.name | startswith("php-\($version)-cli-"))) | .full_path' \
-            >> matching_filepaths.txt
+            jq -sr --arg version "$VERSION" 'if length == 1 and (.[0] | type == "array") then .[0][] | select(.is_dir == false and (.name | startswith("php-\($version)-cli-"))) | .full_path else error("expected one JSON array document") end' \
+            >> "$matching_filepaths"
 
           echo "Fetching from StaticPHP v3 spc-max repository..."
           curl -fsS "https://dl.static-php.dev/v3/php-bin/spc-max/?format=json" | \
-            jq -r --arg version "$VERSION" '.[] | select(.is_dir == false and (.name | startswith("php-\($version)-cli-"))) | .full_path' \
-            >> matching_filepaths.txt
+            jq -sr --arg version "$VERSION" 'if length == 1 and (.[0] | type == "array") then .[0][] | select(.is_dir == false and (.name | startswith("php-\($version)-cli-"))) | .full_path else error("expected one JSON array document") end' \
+            >> "$matching_filepaths"
 
-          # Check if we found anything
-          if [ -s matching_filepaths.txt ]; then
-            echo "Found matching file paths from static-php.dev:"
-            cat matching_filepaths.txt
-
-            # Download and rename each file
-            while read -r filepath; do
-              filename=$(basename "$filepath")
-              echo "Downloading: $filename"
-              if curl -L -o "downloads/temp_${filename}" "https://dl.static-php.dev/${filepath}"; then
-                # Extract architecture and file extension for both .tar.gz and .zip files
-                if [[ "$filename" =~ php-${VERSION}-cli-(.+)\.tar\.gz$ ]]; then
-                  arch="${BASH_REMATCH[1]}"
-                  fileext="tar.gz"
-                elif [[ "$filename" =~ php-${VERSION}-cli-(.+)\.zip$ ]]; then
-                  arch="${BASH_REMATCH[1]}"
-                  fileext="zip"
-                else
-                  echo "Error: Could not extract arch/file extension from $filename"
-                  rm "downloads/temp_${filename}" || true
-                  continue
-                fi
-                # Rename file to new format
-                new_filename="php-${VERSION}-cli-${arch}.${fileext}"
-                mv "downloads/temp_${filename}" "downloads/${new_filename}"
-                echo "Renamed to: $new_filename"
-              else
-                echo "Warning: Failed to download $filename"
-                rm "downloads/temp_${filename}" || true
-              fi
-            done < matching_filepaths.txt
-            rm -f matching_filepaths.txt
-          else
-            echo "Warning: No matching StaticPHP v3 files found for version $VERSION"
-            rm -f matching_filepaths.txt
+          if [ ! -s "$matching_filepaths" ]; then
+            echo "Error: No matching StaticPHP v3 files found for version $VERSION" >&2
+            exit 1
           fi
+
+          declare -A seen_filenames=()
+          expected_count=0
+          while IFS= read -r filepath; do
+            if [[ ! "$filepath" =~ ^/v3/php-bin/(bulk|spc-max)/php-${VERSION}-cli-[^/]+\.(tar\.gz|zip)$ ]]; then
+              echo "Error: Unexpected artifact path: $filepath" >&2
+              exit 1
+            fi
+
+            filename=${filepath##*/}
+            if [[ "$filename" =~ ^php-${VERSION}-cli-(.+)\.tar\.gz$ ]]; then
+              arch=${BASH_REMATCH[1]}
+              fileext=tar.gz
+            elif [[ "$filename" =~ ^php-${VERSION}-cli-(.+)\.zip$ ]]; then
+              arch=${BASH_REMATCH[1]}
+              fileext=zip
+            else
+              echo "Error: Unsupported artifact extension: $filename" >&2
+              exit 1
+            fi
+
+            new_filename="php-${VERSION}-cli-${arch}.${fileext}"
+            if [[ -n "${seen_filenames[$new_filename]:-}" ]]; then
+              echo "Error: Duplicate final asset filename: $new_filename" >&2
+              exit 1
+            fi
+            seen_filenames[$new_filename]=1
+            expected_count=$((expected_count + 1))
+
+            temp_file=$(mktemp)
+            echo "Downloading: $filename"
+            curl -fsSL -o "$temp_file" "https://dl.static-php.dev/${filepath#/}"
+            if [[ "$fileext" == tar.gz ]]; then
+              gzip -t "$temp_file"
+              tar -xOzf "$temp_file" php > "$temp_file.member"
+              if [ ! -s "$temp_file.member" ]; then
+                echo "Error: Archive has no nonempty php member: $filename" >&2
+                exit 1
+              fi
+              rm -f "$temp_file.member"
+            else
+              unzip -t "$temp_file" >/dev/null
+              unzip -p "$temp_file" php.exe > "$temp_file.member"
+              if [ ! -s "$temp_file.member" ]; then
+                echo "Error: Archive has no nonempty php.exe member: $filename" >&2
+                exit 1
+              fi
+              rm -f "$temp_file.member"
+            fi
+            mv "$temp_file" "downloads/$new_filename"
+            echo "Validated and saved: $new_filename"
+          done < "$matching_filepaths"
+
+          shopt -s nullglob
+          downloaded=(downloads/php-${VERSION}-cli-*)
+          if [ "${#downloaded[@]}" -ne "$expected_count" ]; then
+            echo "Error: Expected $expected_count assets, found ${#downloaded[@]}" >&2
+            exit 1
+          fi
+          for asset in "${downloaded[@]}"; do
+            if [[ -z "${seen_filenames[${asset##*/}]:-}" ]]; then
+              echo "Error: Unexpected downloaded asset: ${asset##*/}" >&2
+              exit 1
+            fi
+          done
 
           echo "All files in downloads directory:"
           ls -la downloads/
@@ -154,3 +190,4 @@ jobs:
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
           files: downloads/**
+          fail_on_unmatched_files: true
