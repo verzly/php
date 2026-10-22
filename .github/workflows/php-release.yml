@@ -40,16 +40,16 @@ jobs:
           
           mkdir -p downloads
 
-          # Fetch file listings using JSON API and find matching tarballs
-          echo "Fetching from bulk repository..."
-          curl -sS "https://dl.static-php.dev/static-php-cli/bulk/?format=json" | \
-            jq -r ".[] | select(.name | test(\"php-${VERSION}-cli\")) | .full_path" \
-            >> matching_filepaths.txt || true
+          # Fetch file listings using JSON API and find matching v3 artifacts
+          echo "Fetching from StaticPHP v3 bulk repository..."
+          curl -fsS "https://dl.static-php.dev/v3/php-bin/bulk/?format=json" | \
+            jq -r --arg version "$VERSION" '.[] | select(.is_dir == false and (.name | startswith("php-\($version)-cli-"))) | .full_path' \
+            >> matching_filepaths.txt
 
-          echo "Fetching from windows/spc-max repository..."
-          curl -sS "https://dl.static-php.dev/static-php-cli/windows/spc-max/?format=json" | \
-            jq -r ".[] | select(.name | test(\"php-${VERSION}-cli\")) | .full_path" \
-            >> matching_filepaths.txt || true
+          echo "Fetching from StaticPHP v3 spc-max repository..."
+          curl -fsS "https://dl.static-php.dev/v3/php-bin/spc-max/?format=json" | \
+            jq -r --arg version "$VERSION" '.[] | select(.is_dir == false and (.name | startswith("php-\($version)-cli-"))) | .full_path' \
+            >> matching_filepaths.txt
 
           # Check if we found anything
           if [ -s matching_filepaths.txt ]; then
@@ -84,7 +84,7 @@ jobs:
             done < matching_filepaths.txt
             rm -f matching_filepaths.txt
           else
-            echo "Warning: No matching files found from static-php.dev for version $VERSION"
+            echo "Warning: No matching StaticPHP v3 files found for version $VERSION"
             rm -f matching_filepaths.txt
           fi
 
@@ -109,7 +109,7 @@ jobs:
             ## Sources
             * **Official PHP**: https://php.net/releases
             * **Windows Builds**: https://windows.php.net/downloads/releases
-            * **Static PHP CLI**: https://dl.static-php.dev/static-php-cli/
+            * **StaticPHP v3**: https://dl.static-php.dev/v3/php-bin/
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}

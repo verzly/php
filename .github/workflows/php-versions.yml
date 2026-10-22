@@ -24,9 +24,9 @@ jobs:
         env:
           MIN_VER: ${{ github.event.inputs.minimum_version || '0.0.0' }}
         run: |
-          echo "🔍 Fetching data from static-php.dev... (Filter: >= $MIN_VER)"
+          echo "🔍 Fetching data from StaticPHP v3... (Filter: >= $MIN_VER)"
 
-          curl -sS "https://dl.static-php.dev/static-php-cli/bulk/?format=json" | \
+          curl -fsS "https://dl.static-php.dev/v3/php-bin/bulk/?format=json" | \
           jq -r --arg min_v "$MIN_VER" '
             # Parse the input minimum version into an array of numbers once
             ($min_v | split(".") | map(tonumber)) as $min_v_arr |
