@@ -7,6 +7,11 @@ on:
         description: 'PHP version (e.g. 8.4.3)'
         required: true
         type: string
+      force:
+        description: 'Allow updating an existing release and its assets'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -33,7 +38,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version || github.event.inputs.version }}
           REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE: ${{ inputs.force || 'false' }}
         run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$FORCE" = "true" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Manual force enabled; allowing release v$VERSION to be updated."
+            exit 0
+          fi
+
           set +e
           response=$(gh api --include "repos/$REPOSITORY/releases/tags/v$VERSION" 2>&1)
           result=$?
