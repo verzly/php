@@ -27,12 +27,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Check for existing release
+        id: existing-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version || github.event.inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set +e
+          response=$(gh api --include "repos/$REPOSITORY/releases/tags/v$VERSION" 2>&1)
+          result=$?
+          set -e
+          if [ "$result" -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release v$VERSION already exists; skipping release workflow."
+          else
+            if printf '%s\n' "$response" | grep -q '^HTTP/[0-9.]* 404 '; then
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Failed to check release v$VERSION: $response" >&2
+              exit 1
+            fi
+          fi
+
       - name: Install dependencies
+        if: steps.existing-release.outputs.exists == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq
 
       - name: Fetch PHP CLI tarballs
+        if: steps.existing-release.outputs.exists == 'false'
         continue-on-error: true
         run: |
           VERSION="${{ inputs.version || github.event.inputs.version }}"
@@ -92,10 +117,12 @@ jobs:
           ls -la downloads/
 
       - name: Extract major version
+        if: steps.existing-release.outputs.exists == 'false'
         run: |
           echo "VERSION_MAJOR=$(echo ${{ inputs.version || github.event.inputs.version }} | cut -d'.' -f1,1)" >> $GITHUB_ENV
 
       - name: Create release with all assets
+        if: steps.existing-release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
           target_commitish: "b249226a4b2e29219091637c9658c2024e709d3a"
