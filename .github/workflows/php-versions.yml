@@ -2,7 +2,7 @@ name: PHP Version Fetcher
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Scheduled: fetches updates from the last 48 hours
+    - cron: '30 4 * * *'  # Scheduled: fetches updates from the last 48 hours
   workflow_dispatch:
     inputs:
       minimum_version:
